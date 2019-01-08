@@ -1,9 +1,6 @@
 (ns fsm-clj.fsm
   (:require
-   [clojure.spec.alpha :as s])
-  (:use
-   [fsm-clj.type]))
-
+   [clojure.spec.alpha :as s]))
 
 ;;;;;;;;;;;;;;;;;;;;;;
 ;;; Base namespace ;;;
@@ -13,97 +10,107 @@
 ;;; Creators
 ;;;
 
+(defn- all
+  [lst]
+  (if (empty? lst)
+    true
+    (reduce #(and %2 %1)
+            true
+            lst)))
+
+(defn- all-contains
+  [data lst]
+  (all
+   (map #(contains? data %)
+        lst)))
+
+;; FIX exception
+(defn valid-template
+  [template]
+  (and (all (map (fn [[_ v]] (and
+                              (contains? v :edges)
+                              (all (map #(and (contains? % :state)
+                                              (contains? % :valid?))
+                                        (:edges v)))
+                              (contains? v :type)))
+                 template))
+       (let [states (set (keys template))
+             in-states (set (reduce concat
+                                    (map (fn [[_ v]]
+                                           (map #(:state %)
+                                                (:edges v)))
+                                         template)))]
+         (all-contains states in-states))))
+
+(defn valid-fsm
+  [{:keys [template state data states] :as fsm}]
+  (and
+   (keyword? state)
+   (= states (keys template))
+   (valid-template template)))
 
 (defn make-fsm
-  ([& {:keys [states rules invariant]
-       :or {states #{}
-            rules {}
-            invariant {}}}]
-   (let [fsm {:states states
-              :rules rules
-              :invariant invariant}]
-       (assert (s/valid? :type.fsm/base fsm)
-               (s/explain :type.fsm/base fsm))
-       fsm)))
-
-(defn make-state
-  [fsm init-state data]
-  {:current init-state
-   :fsm fsm
-   :data data})
+  [template start-state fsm-data]
+  (let [fsm {:template template
+             :state start-state
+             :data fsm-data
+             :states (keys template)}]
+    (assert (valid-fsm fsm))
+    fsm))
 
 ;;;
 ;;; Geters
 ;;;
 
-;;; fsm
-
-(defn fsm-get-curent
+(defn get-data
   [fsm]
-  (:current fsm))
+  (:data fsm))
 
-(defn fsm-get-states
+(defn get-state
   [fsm]
-  (:states fsm))
+  (:state fsm))
 
-(defn fsm-get-rules
+(defn get-template
   [fsm]
-  (:rules fsm))
+  (:template fsm))
 
-(defn fsm-get-invariant
-  [fsm]
-  (:invariant fsm))
-
-;;; state
-
-(defn state-get-fsm
-  [state]
-  (:fsm state))
-
-(defn state-get-cur-state
-  [state]
-  (:current state))
-
-(defn state-get-data
-  [state]
-  (:data state))
+(defn get-edges
+  [template state]
+  (:edges (get template state)))
 
 ;;;
-;;; Seters
+;;; Updaters
 ;;;
-(defn state-set-cur-state
-  [state new-state]
-  (assoc state :current new-state))
 
-(defn state-set-data
-  [state new-state]
-  (assoc state :data new-state))
+(defn set-state
+  [fsm state]
+  (assoc fsm :state state))
+
+(defn update-data
+  [fsm updater]
+  (update fsm :data updater))
+
 
 ;;;
-;;; Actions
+;;; Update
 ;;;
-(defn- filter-rule
-  [rule state]
-  (let [apply-key (fn [{:keys [key] :as val} state]
-                    (key state))]
-    (filter #(let [[key val] %]
-               (apply-key val state))
-            rule)))
-(defn apply-fsm
-  [state]
-  (let [fsm (state-get-fsm state)
-        state-data (state-get-data state)
-        current (state-get-cur-state state)
-        rules (fsm-get-rules fsm)
-        cur-rule (get rules current)
-        [nkey nval] (first
-                     (filter-rule cur-rule
-                                  state-data))]
-    (if (nil? nkey)
-      state
-      (-> state
-          (state-set-cur-state nkey)
-          (state-set-data
-           ((:action nval) state-data))))))
 
+(defn- get-next-states
+  [edges data]
+  (filter #((:valid? %1) data) edges))
 
+(defn update-fsm
+  [fsm updater & {:keys [choice-fn]
+                  :or {choice-fn first}}]
+  (let [nfsm (update-data fsm updater)
+        state (get-state nfsm)
+        fsm-data (get-data nfsm)
+        template (get-template nfsm)
+        current-data (get-edges template state)
+        next-states (get-next-states current-data fsm-data)]
+    (println next-states)
+    (if (empty? next-states)
+      nfsm
+      (set-state nfsm
+                 (:state
+                  (choice-fn next-states))))))
