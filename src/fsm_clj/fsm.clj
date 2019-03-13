@@ -9,9 +9,9 @@
 
 (declare get-state-path eval-in-path)
 
-;;;
-;;; Creators
-;;;
+;;;;;;;;;;;;;
+;;; Utils ;;;
+;;;;;;;;;;;;;
 
 (defn- all
   [lst]
@@ -27,6 +27,92 @@
    (map #(contains? data %)
         lst)))
 
+(defn- unique?
+  [lst]
+  (= (count lst) (count (distinct lst))))
+
+;;;;;;;;;;;;;;;;
+;;; Creators ;;;
+;;;;;;;;;;;;;;;;
+
+;;;
+;;; Template
+;;;
+
+(s/def ::symbol-fun #(fn? (eval %)))
+(s/def ::tschema-line-actions
+  (s/&
+   (s/*
+    (s/cat :action #{:in-action :action :out-action}
+           :fun ::symbol-fun))
+   (fn [lst] (<= (count lst) 3))
+   (fn [lst] (let [n (count lst)
+                   set-n (count (set (map #(:action %) lst)))]
+               (= n set-n)))))
+(s/def ::tschema-egdes-valid
+  (s/&
+   (s/*
+    (s/alt :valid? (s/cat :name #{:valid?}
+                          :value ::symbol-fun)
+           :discription (s/cat :name #{:discription}
+                               :value string?)))
+   (fn [lst] (<= (count lst) 2))
+   (fn [lst] (let [n (count lst)
+                   set-n (count (set (map #(:type %) lst)))]
+               (= n set-n)))))
+(s/def ::tschema-egdes (s/cat :arrow #(= (quote =>) %)
+                              :state keyword?
+                              :valid? ::tschema-egdes-valid))
+(s/def ::tschema-line (s/cat :state keyword?
+                             :actions ::tschema-line-actions
+                             :schema (s/alt :normal ::tschema-egdes
+                                            :heir ::tschema)))
+(s/def ::tschema (s/coll-of ::tschema-line :kind vector? :into []))
+
+(defn- parse-pre-template
+  [pre-temp]
+  pre-temp)
+(defmacro parse-tschema
+  [schema]
+  `(let [pre-temp# (s/conform ::tschema (quote ~schema))]
+     (parce-pre-template pre-temp#)))
+
+(defn valid-template-schema
+  "Valid template-schema to correct"
+  [template])
+
+(defn- parse-template-schema-line
+  [schema-line]
+  [])
+(defn- parse-template-schema
+  "Parse schema to FSM template.
+
+   Schema format:
+   [[:a :action (fn [data] ...)
+        :in-action (fn [data] ...)
+        :out-action (fn [data] ...)
+        -> :b :discription \"dsaf\"
+              :valid? (fn [data] ...)
+        -> :c :discription \"dsaf\"
+              :valid? (fn [data] ...)
+        ...]
+    [:c :action (fn [data] ...)
+        :in-action (fn [data] ...)
+        :out-action (fn [data] ...)
+        [[:r ...]]]
+    ...]"
+  [schema]
+  (reduce
+   parse-template-schema-line
+   {}
+   schema))
+
+
+(defn make-template
+  [template-schema]
+  (assert (valid-template-schema template-schema))
+  (parse-template-schema template-schema))
+
 ;; FIX exception
 (defn valid-template
   [template]
@@ -38,7 +124,7 @@
                               (contains? v :edges)
                               (all (map #(and (contains? % :state)
                                               (contains? % :valid?))
-                                        (:edges v)))))
+                                       (:edges v)))))
                  template))
        (let [states (set (keys template))
              in-states (set (reduce concat
@@ -188,7 +274,7 @@
   [fsm & {:keys [choice-fn]
           :or {choice-fn first}}]
   (let [state (get-state fsm)
-        action (:action (state fsm))
+        action (get-in fsm [:template state :action])
         nfsm (if (nil? action)
                fsm
                (update-data fsm action))
