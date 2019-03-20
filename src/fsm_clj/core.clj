@@ -101,78 +101,82 @@
         (recur parent
                (conj path parent))))))
 
-(defn- eval-path
-  [template data path ekey]
-  (loop [ndata data
-         [x & xl] path]
-    (if (nil? x)
-      ndata
-      (let [f (get-in template [x ekey])]
-        (if (nil? f)
-          (recur ndata xl)
-          (recur (f ndata) xl))))))
+(defn- eval-key-path
+  [template data path akey]
+  (reduce (fn [data state]
+            (let [afun (get-in template
+                               [x akey])]
+              (afun data)))
+          data path))
 
-(defn- eval-out-path
+(defn- eval-key-path
+  [template data path akey]
+  (reduce (fn [data state]
+            (let [afun (get-in template
+                               [x akey])]
+              (afun data)))
+          data path))
+
+(defn- eval-out-action-path
   [data template path]
   (eval-path template data path :out-action))
 
-(defn- eval-in-path
+(defn- eval-in-action-path
   [data template path]
   (eval-path template data path :in-action))
 
 (defn- move-from-to
-  [{:keys [template data] :as fsm} from-state to-state]
-  (let [c-to-state (unheir template
-                           to-state)
-        from-data (get template from-state)
-        to-data (get template c-to-state)
-        out-states (get-state-path template
-                                   from-state)
-        in-states (get-state-path template
-                                  c-to-state)
-        eq-count (->> (map vector out-states in-states)
-                      (filter (fn [[x y]]
-                                (= x y)))
-                      (count))
-        new-data (-> data
-                     (eval-out-path template
-                                    (take-last
-                                     (- (count out-states)
-                                        eq-count)
-                                     out-states))
-                     (eval-in-path template
-                                   (take-last
-                                    (- (count in-states)
-                                       eq-count)
-                                    in-states)))]
-    (-> fsm
-        (assoc :data new-data)
-        (assoc :state c-to-state))))
+[{:keys [template data] :as fsm} from-state to-state]
+(let [c-to-state (unheir template
+to-state)
+from-data (get template from-state)
+to-data (get template c-to-state)
+out-states (get-state-path template
+from-state)
+in-states (get-state-path template
+c-to-state)
+eq-count (->> (map vector out-states in-states)
+(filter (fn [[x y]]
+          (= x y)))
+(count))
+new-data (-> data
+(eval-out-path template
+(take-last
+ (- (count out-states)
+    eq-count)
+ out-states))
+(eval-in-path template
+(take-last
+ (- (count in-states)
+    eq-count)
+ in-states)))]
+(-> fsm
+(assoc :data new-data)
+(assoc :state c-to-state))))
 
 (defn move-to
-  [{:keys [template data state] :as fsm} to-state]
-  (move-from-to fsm state to-state))
+[{:keys [template data state] :as fsm} to-state]
+(move-from-to fsm state to-state))
 
 (defn update-data
-  [fsm updater]
-  (update fsm :data updater))
+[fsm updater]
+(update fsm :data updater))
 
 (defn update-fsm
-  [fsm & {:keys [choice-fn]
-          :or {choice-fn first}}]
-  (let [state (:state fsm)
-        action (get-in fsm
-                       [:template state :action])
-        nfsm (if (nil? action)
-               fsm
-               (update-data fsm action))
-        fsm-data (:data nfsm)
-        template (:template nfsm)
-        edges (get-all-edges template state)
-        next-states (get-next-states edges fsm-data)]
-    (if (empty? next-states)
-      nfsm
-      (move-to nfsm (:state (choice-fn next-states))))))
+[{:keys [state data template] :as fsm} &
+{:keys [choice-fn] :or {choice-fn first}}]
+(let [action (get-in fsm
+[:template state :action])
+nfsm (if (nil? action)
+fsm
+(update-data fsm action))
+fsm-data (:data nfsm)
+template (:template nfsm)
+edges (get-all-edges template state)
+next-states (get-next-states edges fsm-data)]
+(if (empty? next-states)
+nfsm
+(move-to nfsm (:state (choice-fn next-states))))))
 
 
 ;;;;;;;;;;;;
@@ -180,33 +184,33 @@
 ;;;;;;;;;;;;
 
 (defn allow-ns?
-  [var-ns rules]
-  (cond
-    (nil? rules) true
-    (keyword? rules) (-> var-ns
-                         (meta)
-                         rules
-                         (nil?)
-                         (not))
-    :else false))
+[var-ns rules]
+(cond
+(nil? rules) true
+(keyword? rules) (-> var-ns
+(meta)
+rules
+(nil?)
+(not))
+:else false))
 
 (defn- parse-fn
-  [code & {:keys [allow-ns]}]
-  (eval  `(fn ~'[state] ~(read-string code))))
+[code & {:keys [allow-ns]}]
+(eval  `(fn ~'[state] ~(read-string code))))
 #_(defn- parse-fn
-    [[name & args] & {:keys [allow-ns]}]
-    (let [[_ ns-name fn-name] (re-find
-                               #"^#'([^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*)\/([^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*)$"
-                               name)
-          var-ns (find-ns (symbol ns-name))
-          var-fn (get (ns-publics (symbol ns-name))
-                      (symbol fn-name))]
-      (assert (not (nil? var-ns)))
-      (assert (not (nil? var-fn)))
-      (assert (allow-ns? var-ns allow-ns))
-      (fn [state]
-        (apply (partial var-fn state)
-               args))))
+[[name & args] & {:keys [allow-ns]}]
+(let [[_ ns-name fn-name] (re-find
+#"^#'([^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*)\/([^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*)$"
+name)
+var-ns (find-ns (symbol ns-name))
+var-fn (get (ns-publics (symbol ns-name))
+(symbol fn-name))]
+(assert (not (nil? var-ns)))
+(assert (not (nil? var-fn)))
+(assert (allow-ns? var-ns allow-ns))
+(fn [state]
+(apply (partial var-fn state)
+args))))
 
 ;;
 ;; Json
@@ -215,19 +219,19 @@
 (declare parse-json-template)
 
 (defn- parse-json-state-data-type-update
-  [template state & {:keys [allow-ns parent]}]
-  (let [stype (get-in template
-                      [state :type])]
-    (condp = stype
-      :heir (merge
-             template
-             (parse-json-template
-              (get-in template
-                      [state :fsm])
-              :allow-ns allow-ns
-              :parent state))
-      :normal template
-      (throw (Exception. "Not valid type")))))
+[template state & {:keys [allow-ns parent]}]
+(let [stype (get-in template
+[state :type])]
+(condp = stype
+:heir (merge
+template
+(parse-json-template
+ (get-in template
+         [state :fsm])
+ :allow-ns allow-ns
+ :parent state))
+:normal template
+(throw (Exception. "Not valid type")))))
 
 (defn- parse-json-state-data
   [template state & {:keys [allow-ns parent]}]

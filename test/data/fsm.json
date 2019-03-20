@@ -1,0 +1,86 @@
+{
+  "discription": "Test FSM",
+  "start-state": "a1",
+  "init-data": {
+    "action-count": 0,
+    "ind": 0
+  },
+  "template": {
+    "a1": {
+      "type": "normal",
+      "in-action": "(update state :ind + 1)",
+      "action": "(-> state
+                     (assoc :action-count 0)
+                     (update :ind - 1))",
+      "out-action": "(update state :action-count + 1)",
+      "edges": [
+        {"state": "a2.2",
+         "valid?": "(= (:action-count state) 5)"}
+      ]
+    },
+    "a2": {
+      "in-action": "(update state :ind + 1)",
+      "action": "(-> state
+                     (assoc :action-count 0)
+                     (update :ind - 1))",
+      "out-action": "(update state :action-count + 1)",
+      "edges": [
+        {"state": "a3",
+          "valid?": "(= (:action-count state) 4)"}
+      ],
+      "type": "heir",
+      "start-state": "a2.1",
+      "fsm": {
+        "a2.1": {
+          "type": "normal",
+          "in-action": "(update state :ind + 1)",
+          "action": "(-> state
+                     (assoc :action-count 0)
+                     (update :ind - 1))",
+          "out-action": "(update state :action-count + 1)",
+          "edges": [
+            {"state": "a2",
+              "valid?": "(= (:action-count state) 3)"}
+          ]
+        },
+        "a2.2": {
+          "in-action": "(update state :ind + 1)",
+          "action": "(-> state
+                         (assoc :action-count 0)
+                         (update :ind - 1))",
+          "out-action": "(update state :action-count + 1)",
+          "edges": [],
+          "type": "heir",
+          "start-state": "a2.2.1",
+          "fsm": {
+            "a2.2.1": {
+              "in-action": "(update state :ind + 1)",
+              "action": "(-> state
+                             (assoc :action-count 0)
+                             (update :ind - 1))",
+              "out-action": "(update state :action-count + 1)",
+              "edges": [
+                {"state": "a2.2.2",
+                  "valid?": "(= (:action-count state) 1)"}
+              ],
+              "type": "normal"
+            },
+            "a2.2.2": {
+              "in-action": "(update state :ind + 1)",
+              "action": "(-> state
+                             (assoc :action-count 0)
+                             (update :ind - 1))",
+              "out-action": "(update state :action-count + 1)",
+              "edges": [],
+              "type": "normal"
+            }
+          }
+        }
+
+      }
+    },
+    "a3": {
+      "type": "normal"
+    }
+  }
+}
