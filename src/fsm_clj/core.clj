@@ -191,19 +191,22 @@
     :else false))
 
 (defn- parse-fn
-  [[name & args] & {:keys [allow-ns]}]
-  (let [[_ ns-name fn-name] (re-find
-                             #"^#'([^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*)\/([^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*)$"
-                             name)
-        var-ns (find-ns (symbol ns-name))
-        var-fn (get (ns-publics (symbol ns-name))
-                    (symbol fn-name))]
-    (assert (not (nil? var-ns)))
-    (assert (not (nil? var-fn)))
-    (assert (allow-ns? var-ns allow-ns))
-    (fn [state]
-      (apply (partial var-fn state)
-             args))))
+  [code & {:keys [allow-ns]}]
+  (eval  `(fn ~'[state] ~(read-string code))))
+#_(defn- parse-fn
+    [[name & args] & {:keys [allow-ns]}]
+    (let [[_ ns-name fn-name] (re-find
+                               #"^#'([^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*)\/([^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*)$"
+                               name)
+          var-ns (find-ns (symbol ns-name))
+          var-fn (get (ns-publics (symbol ns-name))
+                      (symbol fn-name))]
+      (assert (not (nil? var-ns)))
+      (assert (not (nil? var-fn)))
+      (assert (allow-ns? var-ns allow-ns))
+      (fn [state]
+        (apply (partial var-fn state)
+               args))))
 
 ;;
 ;; Json
@@ -291,7 +294,7 @@
 
   Params:
 
-  - **file-reader*** - java.io.Reader 
+  - **file-reader*** - java.io.Reader
 
   "
   [file-reader & {:keys [allow-ns]}]

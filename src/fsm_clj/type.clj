@@ -64,22 +64,23 @@
 
 (declare JsonTemplate)
 
-(def JsonFnVar
-  (s/pred
-   (fn [item]
-     (and
-      (string? item)
-      (not (nil? (re-matches
-                  #"^#'[^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*\/[^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*$"
-                  item)))))))
+#_(def JsonFnVar
+    (s/pred
+     (fn [item]
+       (and
+        (string? item)
+        (not (nil? (re-matches
+                    #"^#'[^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*\/[^\s@;#$%\\/0-9^][^\s@;#$%\\/^]*$"
+                    item)))))))
 
 (def JsonFn
-  [(s/one
-    JsonFnVar
-    "fun")
-   (s/optional
-    s/Any
-    "param")])
+  s/Str
+  #_[(s/one
+      JsonFnVar
+      "fun")
+     (s/optional
+      s/Any
+      "param")])
 
 (def JsonNotTypedStateDifinition
   (CustomNotTypedStateDifinition :fn-type JsonFn))
