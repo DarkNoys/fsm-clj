@@ -17,81 +17,13 @@
 ;; FSM ;;
 ;;;;;;;;;
 
-(declare get-state-path eval-in-path)
-
 ;;
 ;; Utils
 ;;
 
-(defn- all
-  [lst]
-  (if (empty? lst)
-    true
-    (reduce #(and %2 %1)
-            true
-            lst)))
-
-(defn- all-contains
-  [data lst]
-  (all
-   (map #(contains? data %)
-        lst)))
-
-(defn- get-all-edges
-  [template state]
-  (loop [edges (get-in template [state :edges])
-         nstate state]
-    (let [state-data (get template nstate)
-          parent (:parent state-data)]
-      (if (nil? parent)
-        edges
-        (let [parent-data (get template parent)
-              parent-edges (:edges parent-data)]
-          (recur (concat edges parent-edges)
-                 parent))))))
-
-;;
-;; Creators
-;;
-
-(defn- unheir
-  [template state]
-  (loop [s state]
-    (if (= :heir (:type (s template)))
-      (recur (:start-state (s template)))
-      s)))
-
-
-(defn fsm
-  [template start-state fsm-data]
-  (let [state (unheir template start-state)
-        in-states (get-state-path template state)
-        new-data  (eval-in-path fsm-data
-                                template
-                                in-states)
-        fsm {:template template
-             :state state
-             :data new-data}]
-    fsm))
-
-;;
-;; Valid
-;;
-
-(defn fsm?
-  [fsm]
-  (nil? (s/check ftype/FSM fsm)))
-
-;;
-;; Update
-;;
-
-(defn- get-next-states
-  [edges data]
-  (filter #((:valid? %1) data) edges))
-
-(defn- get-state-path
-  [template state]
+(defn- state-heir-path
+  "Return all parents of state"
+  [{:keys [template] :as fsm} state]
   (loop [cstate state
          path (list state)]
     (let [data (get template cstate)
@@ -101,78 +33,137 @@
         (recur parent
                (conj path parent))))))
 
-(defn- eval-path
-  [template data path ekey]
-  (loop [ndata data
-         [x & xl] path]
-    (if (nil? x)
-      ndata
-      (let [f (get-in template [x ekey])]
-        (if (nil? f)
-          (recur ndata xl)
-          (recur (f ndata) xl))))))
+(defn- eval-actions
+  ([{:keys [state] :as fsm} ekey]
+   (eval-actions
+    fsm
+    (state-heir-path
+     fsm state)
+    ekey))
+  ([{:keys [data template] :as fsm}
+    path ekey]
+   (assoc fsm
+          :data
+          (reduce
+           (fn [ndata x]
+             (let [f (get-in template
+                             [x ekey])]
+               (if (nil? f)
+                 data
+                 (f ndata))))
+           data path))))
 
-(defn- eval-out-path
-  [data template path]
-  (eval-path template data path :out-action))
+(defn- current-edges
+  "Return all edges in current state and all parent of this state"
+  [{:keys [template state] :as fsm}]
+  (reduce
+   (fn [edges state]
+     (let [nedges (get-in template [state :edges])]
+       (if (nil? nedges)
+         edges
+         (concat edges nedges))))
+   (get-in template [state :edges])
+   (state-heir-path fsm state)))
 
-(defn- eval-in-path
-  [data template path]
-  (eval-path template data path :in-action))
+(defn- unheir
+  "Return first not heir state in state node"
+  [template state]
+  (loop [s state]
+    (if (= :heir (:type (s template)))
+      (recur (:start-state (s template)))
+      s)))
 
-(defn- move-from-to
-  [{:keys [template data] :as fsm} from-state to-state]
-  (let [c-to-state (unheir template
-                           to-state)
-        from-data (get template from-state)
-        to-data (get template c-to-state)
-        out-states (get-state-path template
-                                   from-state)
-        in-states (get-state-path template
-                                  c-to-state)
-        eq-count (->> (map vector out-states in-states)
-                      (filter (fn [[x y]]
-                                (= x y)))
-                      (count))
-        new-data (-> data
-                     (eval-out-path template
-                                    (take-last
-                                     (- (count out-states)
-                                        eq-count)
-                                     out-states))
-                     (eval-in-path template
-                                   (take-last
-                                    (- (count in-states)
-                                       eq-count)
-                                    in-states)))]
-    (-> fsm
-        (assoc :data new-data)
-        (assoc :state c-to-state))))
+;;
+;; Creators
+;;
 
-(defn move-to
-  [{:keys [template data state] :as fsm} to-state]
-  (move-from-to fsm state to-state))
+(defn fsm
+  [template start-state fsm-data]
+  (let [state (unheir template start-state)
+        fsm {:template template
+             :state state
+             :data fsm-data}]
+    (assert (nil? (get-in template [start-state :parent])) "Start state in othre state")
+    (eval-actions fsm
+                  :in-action)))
+
+;;
+;; Valid
+;;
+
+(defn fsm?
+  [fsm]
+  (nil?
+   (s/check
+    ftype/FSM fsm)))
+
+;;
+;; Update
+;;
 
 (defn update-data
+  "Update data in FSM.
+   Return new FSM."
   [fsm updater]
   (update fsm :data updater))
 
+(defn- get-next-states
+  [edges data]
+  (filter
+   #((:valid? %1)
+     data)
+   edges))
+
+(defn- unheir-path-from-to
+  [{:keys [template data state] :as fsm} from-state to-state]
+  (let [out-states (state-heir-path template
+                                        from-state)
+        in-states (state-heir-path template
+                                       to-state)
+        eq-count (->> (map vector out-states in-states)
+                      (filter (fn [[x y]]
+                                (= x y)))
+                      (count))]
+    [(take-last
+      (- (count out-states)
+         eq-count)
+      out-states)
+     (take-last
+      (- (count in-states)
+         eq-count)
+      in-states)]))
+
+(defn move-state
+  ([{:keys [template data state] :as fsm} to-state]
+   (let [real-to-state (unheir template
+                               to-state)
+         [out-states in-states] (unheir-path-from-to
+                                 fsm state real-to-state)
+         new-data (-> data
+                      (eval-actions fsm
+                                    out-states
+                                    :out-action)
+                      (eval-actions fsm
+                                    out-states
+                                    :in-action))]
+     (-> fsm
+         (assoc :data new-data)
+         (assoc :state real-to-state)))))
+
+
 (defn update-fsm
-  [fsm & {:keys [choice-fn]
-          :or {choice-fn first}}]
-  (let [state (:state fsm)
-        action (get-in fsm
-                       [:template state :action])
-        nfsm (if (nil? action)
-               fsm
-               (update-data fsm action))
+  [{:keys [state template] :as fsm} & {:keys [choice-fn]
+                                       :or {choice-fn first}}]
+  (let [nfsm (eval-actions fsm
+                           :action)
         fsm-data (:data nfsm)
-        template (:template nfsm)
-        edges (get-all-edges template state)
+        edges (current-edges nfsm)
         next-states (get-next-states edges fsm-data)]
     (if (empty? next-states)
       nfsm
-      (move-to nfsm (:state (choice-fn next-states))))))
+      (move-to nfsm
+               (:state
+                (choice-fn next-states))))))
 
 
 ;;;;;;;;;;;;
@@ -190,9 +181,12 @@
                          (not))
     :else false))
 
+
 (defn- parse-fn
   [code & {:keys [allow-ns]}]
-  (eval  `(fn ~'[state] ~(read-string code))))
+  (eval  `(fn ~'[state]
+            ~(read-string code))))
+
 #_(defn- parse-fn
     [[name & args] & {:keys [allow-ns]}]
     (let [[_ ns-name fn-name] (re-find
