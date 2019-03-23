@@ -117,9 +117,9 @@
 (defn- unheir-path-from-to
   [{:keys [template data state] :as fsm} from-state to-state]
   (let [out-states (state-heir-path template
-                                        from-state)
+                                    from-state)
         in-states (state-heir-path template
-                                       to-state)
+                                   to-state)
         eq-count (->> (map vector out-states in-states)
                       (filter (fn [[x y]]
                                 (= x y)))
