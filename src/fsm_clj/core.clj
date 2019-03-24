@@ -22,12 +22,11 @@
 ;;
 
 (defn- state-heir-path
-  "Return all parents of state"
+  "Return all parents of state with state"
   [{:keys [template] :as fsm} state]
   (loop [cstate state
          path (list state)]
-    (let [data (get template cstate)
-          parent (:parent data)]
+    (let [parent (get-in template [cstate :parent])]
       (if (nil? parent)
         path
         (recur parent
@@ -116,9 +115,9 @@
 
 (defn- unheir-path-from-to
   [{:keys [template data state] :as fsm} from-state to-state]
-  (let [out-states (state-heir-path template
+  (let [out-states (state-heir-path fsm
                                     from-state)
-        in-states (state-heir-path template
+        in-states (state-heir-path fsm
                                    to-state)
         eq-count (->> (map vector out-states in-states)
                       (filter (fn [[x y]]
@@ -139,15 +138,14 @@
                                to-state)
          [out-states in-states] (unheir-path-from-to
                                  fsm state real-to-state)
-         new-data (-> data
-                      (eval-actions fsm
-                                    out-states
-                                    :out-action)
-                      (eval-actions fsm
-                                    out-states
-                                    :in-action))]
-     (-> fsm
-         (assoc :data new-data)
+         nfsm (-> fsm
+                  (eval-actions
+                   out-states
+                   :out-action)
+                  (eval-actions
+                   out-states
+                   :in-action))]
+     (-> nfsm
          (assoc :state real-to-state)))))
 
 
@@ -161,31 +159,20 @@
         next-states (get-next-states edges fsm-data)]
     (if (empty? next-states)
       nfsm
-      (move-to nfsm
-               (:state
-                (choice-fn next-states))))))
+      (move-state nfsm
+                  (:state
+                   (choice-fn next-states))))))
 
 
 ;;;;;;;;;;;;
 ;; Import ;;
 ;;;;;;;;;;;;
 
-(defn allow-ns?
-  [var-ns rules]
-  (cond
-    (nil? rules) true
-    (keyword? rules) (-> var-ns
-                         (meta)
-                         rules
-                         (nil?)
-                         (not))
-    :else false))
-
-
 (defn- parse-fn
-  [code & {:keys [allow-ns]}]
-  (eval  `(fn ~'[state]
-            ~(read-string code))))
+  [code & {:keys [fun-ns]}]
+  (binding [*ns* fun-ns]
+    (eval  `(fn ~'[state]
+              ~(read-string (str "(do" code ")"))))))
 
 #_(defn- parse-fn
     [[name & args] & {:keys [allow-ns]}]
@@ -209,26 +196,28 @@
 (declare parse-json-template)
 
 (defn- parse-json-state-data-type-update
-  [template state & {:keys [allow-ns parent]}]
+  [template state & {:keys [fun-ns parent]}]
   (let [stype (get-in template
                       [state :type])]
     (condp = stype
-      :heir (merge
-             template
-             (parse-json-template
-              (get-in template
-                      [state :fsm])
-              :allow-ns allow-ns
-              :parent state))
+      :heir (->
+             (merge
+              template
+              (parse-json-template
+               (get-in template
+                       [state :fsm])
+               :fun-ns fun-ns
+               :parent state))
+             (update state dissoc :fsm))
       :normal template
       (throw (Exception. "Not valid type")))))
 
 (defn- parse-json-state-data
-  [template state & {:keys [allow-ns parent]}]
+  [template state & {:keys [parent fun-ns]}]
   (-> template
       (parse-json-state-data-type-update
        state
-       :allow-ns allow-ns
+       :fun-ns fun-ns
        :parent parent)
       (assoc-in [state :parent] parent)
       (update-in-vals-if-exist [[state :edges]]
@@ -236,15 +225,15 @@
                                  (mapv (fn [edge]
                                          (update
                                           edge :valid?
-                                          #(parse-fn % :allow-ns allow-ns)))
+                                          #(parse-fn % :fun-ns fun-ns)))
                                        edges)))
       (update-in-vals-if-exist [[state :action]
                                 [state :out-action]
                                 [state :in-action]]
-                               #(parse-fn % :allow-ns allow-ns))))
+                               #(parse-fn % :fun-ns fun-ns))))
 
 (defn- parse-json-template
-  [template & {:keys [allow-ns parent]}]
+  [template & {:keys [fun-ns parent]}]
   (loop [ntemplate template
          [state & states] (keys template)]
     (if (nil? state)
@@ -252,47 +241,57 @@
       (recur (parse-json-state-data
               ntemplate
               state
-              :allow-ns allow-ns
+              :fun-ns fun-ns
               :parent parent)
              states))))
 
+(defn- random-fsm-ns
+  []
+  (let [name (symbol
+              (str
+               "fsm-clj.tmp-"
+               (.toString (java.util.UUID/randomUUID))))
+        new-ns (create-ns name)]
+    (binding [*ns* new-ns]
+      (require '[clojure.core :refer :all]))
+    new-ns))
+
 (defn- json-to-fsm
   [{:keys [discription init-data
+           init-fn
            start-state template]
-    :as json-data} & {:keys [allow-ns]}]
-  (fsm
-   (parse-json-template
-    template
-    :allow-ns allow-ns)
-   start-state
-   init-data))
+    :as json-data}]
+  (let [fsm-ns (random-fsm-ns)]
+    (when init-fn
+      (binding [*ns* fsm-ns]
+        (eval (read-string (str "(do"
+                                init-fn
+                                ")")))))
+    (fsm
+     (parse-json-template
+      template
+      :fun-ns fsm-ns)
+     start-state
+     init-data)))
 
 (defn- load-json
-  [data & {:keys [allow-ns]}]
+  [data]
   (let [json-data ((c/coercer ftype/JsonFSM
                               c/json-coercion-matcher)
                    data)]
     (assert (nil? (:error json-data)) (format "Not correct file format %s" (print-str json-data)))
-    (json-to-fsm json-data :allow-ns allow-ns)))
+    (json-to-fsm json-data)))
 
 (defn load-json-string
-  [string & {:keys [allow-ns]}]
+  [string]
   (let [data (json/parse-string
               string
               true)]
-    (load-json data :allow-ns allow-ns)))
+    (load-json data)))
 
 (defn load-json-file
-  "
-  Return fsm object from file.
-
-  Params:
-
-  - **file-reader*** - java.io.Reader
-
-  "
-  [file-reader & {:keys [allow-ns]}]
+  [file-reader]
   (let [data (json/parse-stream
               file-reader
               true)]
-    (load-json data :allow-ns allow-ns)))
+    (load-json data)))

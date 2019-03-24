@@ -107,6 +107,7 @@
 
 (def JsonFSM
   {(s/optional-key :discription) s/Str
+   (s/optional-key :init-fn) JsonFn
    :template JsonTemplate
    :start-state State
    :init-data s/Any})
