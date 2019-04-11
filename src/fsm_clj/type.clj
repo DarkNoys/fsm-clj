@@ -1,7 +1,5 @@
 (ns fsm-clj.type
   (:require
-   [cheshire.core :as json]
-   [schema.coerce :as coerce]
    [schema.experimental.abstract-map :as amap]
    [schema.core :as s]))
 

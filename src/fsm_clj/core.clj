@@ -1,9 +1,10 @@
 (ns fsm-clj.core
   (:require
-   [fsm-clj.type :as ftype]
-   [schema.core :as s]
-   [schema.coerce :as c]
-   [cheshire.core :as json]))
+    [fsm-clj.type :as ftype]
+    [schema.core :as s]
+    [clojure.string :as str]
+    [schema.coerce :as c]
+    [cheshire.core :as json]))
 
 (defn- update-in-vals-if-exist
   [item vals fun]
@@ -23,7 +24,7 @@
 
 (defn- state-heir-path
   "Return all parents of state with state"
-  [{:keys [template] :as fsm} state]
+  [{:keys [template]} state]
   (loop [cstate state
          path (list state)]
     (let [parent (get-in template [cstate :parent])]
@@ -114,7 +115,7 @@
    edges))
 
 (defn- unheir-path-from-to
-  [{:keys [template data state] :as fsm} from-state to-state]
+  [fsm from-state to-state]
   (let [out-states (state-heir-path fsm
                                     from-state)
         in-states (state-heir-path fsm
@@ -133,7 +134,7 @@
       in-states)]))
 
 (defn move-state
-  ([{:keys [template data state] :as fsm} to-state]
+  ([{:keys [template  state] :as fsm} to-state]
    (let [real-to-state (unheir template
                                to-state)
          [out-states in-states] (unheir-path-from-to
@@ -143,15 +144,15 @@
                    out-states
                    :out-action)
                   (eval-actions
-                   out-states
+                   in-states
                    :in-action))]
      (-> nfsm
          (assoc :state real-to-state)))))
 
 
 (defn update-fsm
-  [{:keys [state template] :as fsm} & {:keys [choice-fn]
-                                       :or {choice-fn first}}]
+  [fsm & {:keys [choice-fn]
+          :or {choice-fn first}}]
   (let [nfsm (eval-actions fsm
                            :action)
         fsm-data (:data nfsm)
@@ -167,11 +168,18 @@
 ;; Import ;;
 ;;;;;;;;;;;;
 
+(defn- read-fun
+  [code]
+  (let [fcode (case
+                (string? code) code
+                (sequential? code) (str/join "\n" code))]
+    (read-string (str "(do" fcode ")"))))
+
 (defn- parse-fn
   [code & {:keys [fun-ns]}]
   (binding [*ns* fun-ns]
     (eval  `(fn ~'[state]
-              ~(read-string (str "(do" code ")"))))))
+              ~(read-fun code)))))
 
 #_(defn- parse-fn
     [[name & args] & {:keys [allow-ns]}]
@@ -195,7 +203,7 @@
 (declare parse-json-template)
 
 (defn- parse-json-state-data-type-update
-  [template state & {:keys [fun-ns parent]}]
+  [template state & {:keys [fun-ns]}]
   (let [stype (get-in template
                       [state :type])]
     (condp = stype
@@ -258,14 +266,11 @@
 (defn- json-to-fsm
   [{:keys [discription init-data
            init-fn
-           start-state template]
-    :as json-data}]
+           start-state template]}]
   (let [fsm-ns (random-fsm-ns)]
     (when init-fn
       (binding [*ns* fsm-ns]
-        (eval (read-string (str "(do"
-                                init-fn
-                                ")")))))
+        (eval (read-fun init-fn))))
     (fsm
      (parse-json-template
       template
